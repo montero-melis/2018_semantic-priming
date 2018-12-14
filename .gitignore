@@ -2,3 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
+
+*test.R
+
+*.html
+*.pdf
