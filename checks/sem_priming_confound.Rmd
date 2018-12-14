@@ -1,0 +1,443 @@
+---
+title: "Semantic priming confound"
+author: '[Guillermo Montero-Melis](http://www.biling.su.se/montero_melis_guillermo)'
+date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
+output: 
+  pdf_document: 
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(knitr)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(lattice)  # handy for plotting random effects with dotplot()
+```
+
+```{r, echo=FALSE}
+smallHe <- 3
+```
+
+
+Introduction -- why add a semantic priming task?
+============
+
+For a replication of the embodiment effect reported in Shebani and Pulvermüller
+(2013, *Cortex*), we would like to add a semantic priming task (thanks to HLP
+lab for the suggestion). 
+
+In the original study, participants had to memorize groups of words that denoted
+either hand/arm actions (*clap*) or foot/leg actions (*stomp*) while simultaneously
+carrying out a demanding rhythmic pattern (a “paradiddle”) at their speed limit
+with either their hands or feet. Hand and foot movements led to category-specific
+memory interference: Hand movements led to more errors recalling arm words than
+leg words, while foot movements led to more errors recalling leg than arm words. 
+
+The rationale for including a semantic priming task is this:
+
+If the reported effect, as argued by the authors, is really about 
+*semantic representations* interfering with motor actions (hand vs foot
+tapping), rather than about strategically simulating the actions to solve the
+memory task, then we should find that a different task *known* to tap onto 
+semantic representations, semantic priming, yields compatible results.
+Specifically, the prediction is this:
+
+*General prediction*
+
+If the original interference effect is due to interference at the lexicosemantic
+level, then we should also see that there is a priming effect for within-category
+verbs (i.e. hand-hand or feet-feet) relative to across-category verbs (hand-feet
+or feet-hand).
+
+*Individual-level prediction*
+
+At the individual level, the prediction is that, the stronger the priming
+effect, the stronger also the interference effect, since both of them would
+be tapping into the same semantic representations.
+
+
+The paradigm
+============
+
+In general
+-------
+
+We want to use a classical semantic priming lexical decision task (LDT).
+In this task target words can either be paired with a semantically related
+word (*related* condition, e.g. cat-dog) or with a semantically unrelated word
+(*unrelated* condition, e.g. chair-dog). The participant's task is to decide
+whether the target word (always the 2nd in a give word pair) is a word in the
+language or not. Therefore, in order to make the task meaningful, there are
+also nonwords as targets (*nonword* condition, e.g. bottle-carriks),
+making up for 50% of the trials. Thus, there are 3 basic conditions:
+
+```{r}
+data.frame(
+  Condition = c("Related", "Unrelated", "Nonword"),
+  Prime = c("A'", "B'", "C'"),
+  Target = c("A", "A", "NonWord"),
+  Proportion = c(.25, .25, .5)
+) %>%
+  kable
+```
+
+where capital letters represent set of words that are semantically related
+(same letter, A'-A, e.g. cat-dog) or not (different letters, B'-A, e.g. 
+chair-dog); primes are marked with a prime sign (e.g., A').
+
+
+Our specific case
+----------------
+
+In our case, we are specifically interested in knowing whether the priming
+effect is larger within category (hand-hand or feet-feet) than across
+categories (hand-feet, feet-hand). However, we also need to add related/unrelated
+word pairs that have nothing to do with the actions that interest us
+(e.g., cat-dog vs table-dog), so as to mask the main purpose of the task and
+avoid participants just being overall really biased towards expecting and
+activating action semantics.
+
+Thus, we want the following conditions (proportions refer to the proportion
+of items a given subject is going to see in the task):
+
+```{r, echo = FALSE}
+mycond <- data.frame(
+  Condition = c(rep(c("Related", "Unrelated"), times = 3), "Nonword"),
+  Prime = c("ArmWord", "LegWord", "LegWord","ArmWord", "X'",
+            "Y'", "Z'"),
+  Target = c(rep(c("ArmWord", "Legword", "X"), each = 2), "NonWord"),
+  Proportion = round(c(rep(.5 / 8, 4), .5 / 4, .5 / 4, .5), 3)
+)
+# mycond
+kable(mycond, row.names = TRUE)
+```
+
+
+The problem: Gauging by-speaker priming strength
+===================================
+
+From the above design and with proper counterbalancing of items, we can
+establish whether overall there is a within-category priming effect.
+
+However, **we are also interested in extracting subject-level estimates**.
+We want to be able to say something like Subject S1 shows a strong priming
+effect whereas S2 shows a weak effect.
+
+The problem is, because we need to counterbalance targets so that they appear
+both in the related and the unrelated conditions, and because participants
+will only ever see a target once, there is no easy way of teasing apart the
+priming effect from potential item-effects (or item-level variability) that
+will make some words generally faster to respond to than others.
+
+
+Illustration
+----------
+
+Let's illustrate the problem with an example. To keep it simple, we focus on
+rows 1 and 2 of the above table (the one showing the 7 conditions), and show
+concrete items as they would be used in the actual task:
+
+```{r}
+vbs <- read.csv("stimuli/english_target_verbs.csv")
+set.seed(5)
+# select 4 verbs of each category for illustration
+sel_list <- by(vbs$verb, vbs$type, base::sample, size = 8)
+sel_mat  <- sapply(sel_list, as.character)
+```
+
+
+```{r}
+items <- data.frame(
+  Condition = rep(c("Related", "Unrelated"), each = 4),
+  PairType = rep(c("Arm-Arm", "Leg-Arm"), each = 4),
+  Prime  = c(sel_mat[1:4, "arm"], sel_mat[1:4, "leg"]),
+  Target = sel_mat[5:8, "arm"],
+  List = c(rep(c(1,2), 2), rep(c(2,1), 2))
+)
+kable(items)
+```
+
+The `List` column shows the two lists used for counterbalancing.
+Any given participant would only see one of them, either List 1:
+
+```{r}
+kable(items[items$List == 1, ], row.names = FALSE)
+```
+
+or List 2:
+
+```{r}
+kable(items[items$List == 2, ], row.names = FALSE)
+```
+
+Since these lists are usually fixed, item effects and priming effects are
+completely confounded at the individual level.
+
+
+Mini simulation
+---------------
+
+To work through a mini simulation, let's make some **assumptions**:
+
+- The average reaction time (RT) to make a lexical decision is 600 ms.
+- There is a population level priming effect of 25 ms.
+- Some words elicit quicker RTs ("fast", -50 ms on average), some elicit
+slower RTs ("slow", +50ms on average).
+- All slow words happen to be assigned to the "Related" condition in one list
+and to the "Unrelated" condition in the other, and vice versa for fast words.
+- There is no systematic individual variation, only random normal noise.
+
+
+```{r, echo = TRUE}
+# Function to create data under stated assumptions
+mini_sim <- function(df = items, N = 2,  # N = number of participants
+                     priming = 25,  # prime effect
+                     itemType_M = 50, itemType_SD = 15,  # item effect (fast/slow)
+                     subject_sd = 0,  # subject random variability (SD)  
+                     intercept = 600, resid_error = 25
+                     )
+  {
+  df
+  # order items by list
+  df <- rbind(df[df$List == 1, ], df[df$List == 2, ])
+  # Repeat rows according to number of subjects (NB: 1 list per subject!)
+  df <- df[rep(row.names(df), N / 2), ]  # N subjects who see either List 1 or 2
+  # Assign Participant IDs
+  df$Sbj <- paste("S", rep(seq_len(nrow(df)/4), each = 4), sep = "")
+
+  # Priming effect
+  priming_effects <- data.frame(
+    Condition = c("Related", "Unrelated"),
+    PrimEff = c(- priming, 0)
+    )
+  # Item effects (adj for adjustments)
+  nbTargets <- length(unique(df$Target))  # number of unique targets
+  item_effects <- data.frame(
+    Target = unique(df$Target),
+    ItemType = rep(c("fast", "slow"), each = nbTargets / 2),
+    ItemAdj = rnorm(nbTargets, itemType_M, itemType_SD) *
+      rep(c(-1, 1), each = nbTargets / 2)
+    )
+  # Subject effects (adj for adjustments)
+  subject_effects <- data.frame(
+    Sbj = unique(df$Sbj),
+    SbjAdj = rnorm(N, 0, subject_sd),
+    stringsAsFactors = FALSE
+  )
+  df <- left_join(df, item_effects)
+  df <- left_join(df, subject_effects)
+  df <- left_join(df, priming_effects)
+  df$Resid <- rnorm(nrow(df), 0, resid_error)
+  df$RT <- with(df, intercept + ItemAdj + SbjAdj + PrimEff + Resid)
+  # Use contrast coding for the factors
+  contrasts(df$Condition) <- contr.sum(2)
+  colnames(contrasts(df$Condition)) <- "Rel_Unrel"
+  contrasts(df$ItemType) <- contr.sum(2)
+  colnames(contrasts(df$ItemType)) <- "Fast_Slow"
+  df$List <- factor(df$List)
+  contrasts(df$List) <- contr.sum(2)
+  df
+}
+```
+
+```{r, message=FALSE, echo=TRUE}
+set.seed(7)
+sim_n2 <- mini_sim(N = 2)
+kable(sim_n2, digits = 2, row.names = FALSE)
+```
+
+The problem is apparent in that `Condition` and `ItemType` are completely
+confounded within participants:
+
+```{r}
+kable(unique(sim_n2[, c("Sbj", "Condition", "ItemType")]), row.names = FALSE)
+```
+
+Even though this is not the case across participants:
+
+```{r}
+unique(sim_n2[, c("Condition", "ItemType")]) %>%
+  group_by(Condition, ItemType) %>%
+  summarise(observations = n()) %>%
+  kable
+```
+
+
+Plots
+----------
+
+With a large data set of N = 50 the priming effect is visible:
+
+```{r, message=FALSE}
+set.seed(70)
+sim_n50 <- mini_sim(N = 50)
+```
+
+```{r, fig.height = smallHe}
+ggplot(sim_n50, aes(x = Condition, y = RT)) +
+  geom_jitter(height = 0, width = .2, alpha = .2) +
+  geom_smooth(aes(x = as.numeric(Condition)), method = "lm") +
+  stat_summary(fun.data = "mean_cl_boot", size = 1)
+```
+
+
+
+But not with a smaller sample of N = 10:
+
+```{r, echo=TRUE, message=FALSE}
+set.seed(107)
+sim_n10 <- mini_sim(N = 10)
+```
+
+
+```{r, fig.height = smallHe}
+ggplot(sim_n10, aes(x = Condition, y = RT)) +
+  geom_jitter(height = 0, width = .2, alpha = .2) +
+  geom_smooth(aes(x = as.numeric(Condition)), method = "lm") +
+  stat_summary(fun.data = "mean_cl_boot", size = 1)
+```
+
+In fact, the effect is confounded with list (which itself is confounded
+with ItemType): All the fast items are in the related condition in List 1
+(leading to a huge priming effect), but in the unrelated condition in List 2
+(leading to an apparently negative priming condition).
+
+```{r, fig.height = smallHe}
+ggplot(sim_n10, aes(x = Condition, y = RT)) +
+  geom_jitter(aes(colour = ItemType), height = 0, width = .2, alpha = .4) +
+  geom_smooth(aes(x = as.numeric(Condition)), method = "lm") +
+  stat_summary(aes(colour = ItemType), fun.data = "mean_cl_boot", size = 1) +
+  facet_grid(. ~ List)
+
+```
+
+
+Can we capture this with the analyses?
+-----------------------------------
+
+### Anova
+
+I follow [this post](http://www.cookbook-r.com/Statistical_analysis/ANOVA/).
+
+```{r, echo=TRUE}
+# repeated measures ANOVA
+rep_anova <- aov(RT ~ Condition + Error(Sbj / Condition),
+                 data = sim_n10)
+summary(rep_anova)
+```
+
+
+Things change if one takes list in as a nuisance factor.
+
+```{r, echo = TRUE}
+# repeated measures mixed ANOVA
+rep_anova_list <- aov(RT ~ Condition * List + Error(Sbj / Condition),
+                 data = sim_n10)
+summary(rep_anova_list)
+```
+
+Cell means:
+
+```{r, echo=TRUE}
+model.tables(rep_anova_list, "means")
+```
+
+
+### Mixed models
+
+With linear mixed models we can potentially better capture the different
+sources of variance. 
+
+
+#### N = 10
+
+But if we are ignoring the systematic variability between fast and slow items,
+the priming effect will be harder to detect at low Ns (e.g., N = 10).
+
+```{r, echo=TRUE}
+fm1 <- lmer(RT ~ Condition + (1 | Sbj) + (1 | Target), data = sim_n10)
+summary(fm1)
+```
+
+#### N = 50
+
+Although it will likely be detected with enough participants (here N = 50):
+
+```{r, echo=TRUE}
+fm2 <- lmer(RT ~ Condition + (1 | Sbj) + (1 | Target), data = sim_n50)
+summary(fm2)
+```
+
+Note the effect is accurately estimated in this case: A `ConditionRel_Unrel`
+coefficient of
+`r round(fixef(fm2)[2], 2)` corresponds to the deviation from the mean, so the
+actual priming effect (related vs unrelated) is twice that value or
+`r round(2 * fixef(fm2)[2], 2)`, which indeed comes very close to the population
+level priming effect of 25 ms.
+
+This is probably because, even though we are not taking into account the 
+*sytematic* difference between fast and slow items, we are still capturing
+that variability as part of the random by-item intercepts. This should be
+visible if we plot the BLUPs for items:
+
+```{r}
+# Took me some time to find out how to only plot r.e. for targets, see
+# https://stackoverflow.com/questions/11123147/dotplot-of-random-effects
+
+# dotplot(ranef(fm2, condVar = T))       # prints both subjects+targets
+# dotplot(ranef(fm2, condVar = T)[[2]])  # wrong output
+# dotplot(ranef(fm2, condVar = T)[2])    # wrong output
+dotplot(ranef(fm2, condVar = T))$Target  # yay!
+```
+
+
+
+#### N = 10 controlling for ItemType
+
+*If* we could take into account the systematic variability per ItemType
+(Fast vs Slow), the priming effect would become more detectable even with
+low Ns.
+
+```{r, echo=TRUE}
+fm3 <- lmer(RT ~ Condition * ItemType + (1 | Sbj) + (1 | Target),
+            data = sim_n10)
+summary(fm3)
+```
+
+
+#### N = 10 controlling for List
+
+Now the problem is that `ItemType` is not a manipulated variable and thus we
+cannot control for it. What we can control for is the factor `List` manipulated
+between subjects:
+
+```{r, echo=TRUE}
+fm4 <- lmer(RT ~ Condition * List + (1 | Sbj) + (1 + List | Target),
+            data = sim_n10)
+summary(fm4)
+```
+
+
+
+A more realistic example
+========================
+
+Above I have been assuming a miniature worst case scenario:
+
+- It was *miniature* because it involved only 4 distinct items
+- It was *worst case* because all slow items ended up in one list and
+all fast ones in another.
+
+So now let us now look at a setting that is more like the one we are actually
+expecting, both in terms of number of items and participants.
+
+
+Creating the basic data set
+--------------------------
+
+
+Working with different assumptions
+--------------------------------
