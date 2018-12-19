@@ -46,9 +46,9 @@ sim_RE <- function(
   subjAdj_df
 }
 
-# E.g.,
-sim_RE(groupingVar = "Subj", N = 5, my_sd = c(30, 10), effNames = c("Int", "Prim"))
-sim_RE(groupingVar = "Item", N = 5, my_sd = 15)
+# # E.g.,
+# sim_RE(groupingVar = "Subj", N = 5, my_sd = c(30, 10), effNames = c("Int", "Prim"))
+# sim_RE(groupingVar = "Item", N = 5, my_sd = 15)
 
 
 ## Function to massage the by-subject random effects so they can be joined with
@@ -96,9 +96,9 @@ data_matrix <- function(
   d_m
 }
 
-# E.g.
-data_matrix(nbSubj = 2, nbItems = 4)  # fine
-data_matrix(nbSubj = 2, nbItems = 5)  # error
+# # E.g.
+# data_matrix(nbSubj = 2, nbItems = 4)  # fine
+# data_matrix(nbSubj = 2, nbItems = 5)  # error
 
 
 
@@ -145,8 +145,8 @@ sim_priming <- function(
   d
 }
 
-sim_priming(nbSubj = 4, nbTargets = 4, intercept = 600, priming = 50,
-            subjInt_sd = 50, subjPrim_sd = 10, targInt_sd = 20, resid = 30)
-
-sim_priming(nbSubj = 40, nbTargets = 24, intercept = 600, priming = 50,
-            subjInt_sd = 50, subjPrim_sd = 10, targInt_sd = 20, resid = 30)
+# sim_priming(nbSubj = 4, nbTargets = 4, intercept = 600, priming = 50,
+#             subjInt_sd = 50, subjPrim_sd = 10, targInt_sd = 20, resid = 30)
+# 
+# sim_priming(nbSubj = 40, nbTargets = 24, intercept = 600, priming = 50,
+#             subjInt_sd = 50, subjPrim_sd = 10, targInt_sd = 20, resid = 30)
