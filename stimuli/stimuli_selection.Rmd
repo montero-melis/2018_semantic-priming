@@ -1,0 +1,420 @@
+---
+title: "Stimuli selection from SPP"
+author: '[Guillermo Montero-Melis](http://www.biling.su.se/montero_melis_guillermo)'
+date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
+output:
+  html_document:
+    depth: 2
+    number_sections: yes
+    theme: default
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+library("knitr")
+library("ggplot2")
+library("magrittr")
+library("dplyr")
+library("tidyr")
+library("purrr")
+# library(lme4)
+# library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Introduction
+===========
+
+
+Selection of critical arm/leg stimuli: English
+====================================
+
+We will do the whole process of stimuli selection very explicitly for English
+and then we will just repeat the process (more concisely) for Swedish.
+
+
+Critical verbs
+-------
+
+The English arm/leg verbs were normed by Swedish native speakers of L2 English.
+Based on norming, we selected 80 verbs (40 arm-, 40 leg-related). Here are the
+first ones:
+
+```{r}
+# Read data from disk
+arm_leg <- read.csv("development/english-targets_with-info.csv", 
+                    fileEncoding = "UTF-8", stringsAsFactors = FALSE) %>%
+  rename(v_type = verb_category, score = Score, cogn_bin = cognate_bin)
+# Add column that shows absolute bias
+arm_leg$bias_abs <- abs(arm_leg$bias)
+arm_leg %>% tail() %>% kable(digits = 2)
+```
+
+Columns: 
+
+- `cogn_bin` indicates whether the English verb is a cognate of a Swedish verb,
+and `cognate` shows that cognate if that's the case.
+- `score` shows the proportion of correct translations of the English verb to
+Swedish (by Swedish native speakers).
+- `bias` shows the strength of the verb's bias towards arm- vs leg-relatedness.
+Maximal arm bias is 6 and maximal leg bias is -6. A value of 0 would indicate
+no bias.
+- `bias_abs` shows the absolute value of `bias` (so we can easily compare 
+strength of bias for arm and leg verbs).
+
+
+Take a look at the bias per verb type:
+
+```{r}
+ggplot(arm_leg, aes(x = v_type, y = bias_abs)) + geom_boxplot()
+```
+
+
+What we need
+------------
+
+For the semantic priming task, we need:
+
+1) 12 arm verbs that will serve as targets in the LDT
+2) 12 arm verbs that will serve as primes, either related (if they prime arm
+targets) or unrelated (if they prime leg targets), counterbalanced across two
+lists
+3) 12 arm verbs that serve as primes to non-words
+4) We also need 1--3 for leg verbs.
+
+We will order the verbs with regard to their bias, and take the 24 verbs with
+the strongest bias of each type as items for 1) and 2) above. The 12 verbs per
+category for 3) will be taken from the remaining verbs.
+
+Note that we need to pair 12 arm/leg verbs with nonwords (3 above). Otherwise
+participants could rapidly pick up that target primes (all of which they will 
+already have encountered in the memory task) will always be followed by actual
+verbs.
+
+
+
+```{r}
+# Lists of arm and leg words arranged according to bias and translation score
+arm_leg_ord <- arm_leg %>% 
+  split(.$v_type) %>% 
+  map(~ arrange(.x, desc(.$bias_abs), desc(.$score))) %>%
+  map("verb")
+# Show first items in each list
+arm_leg_ord %>% map(head)
+```
+
+
+Selection and cast into appropriate format
+--------------------------------------
+
+Create a function that takes the ordered vector of target items (arm or leg
+verbs) and creates a list that contains:
+
+- A dataframe of related pairs (e.g., arm-arm pairs) 
+- A dataframe of critical primes paired with nonwords (e.g., arm-nonword pairs)
+
+```{r}
+mypairs <- function (vbs, verb_type) {
+  # Select and shuffle 24 verbs with strongest bias
+  strong_bias <- vbs[1 : 24] %>% base::sample()
+  rel_df <- dplyr::tibble(
+    condition = "related",
+    item_type = paste(verb_type, verb_type, sep = "-"),
+    prime  = strong_bias[1  : 12],
+    target = strong_bias[13 : 24]
+  )
+  # Nonword pairs with placeholders for nonwords
+  nonw_df <- dplyr::tibble(
+    condition = "nonword",
+    item_type = paste(verb_type, "NW", sep = "-"),
+    prime  = base::sample(vbs[25 : length(vbs)], 12),
+    target = "NW"
+  )
+  dplyr::bind_rows(rel_df, nonw_df)
+}
+```
+
+
+```{r}
+# Create dataframe with related pairs and nonword pairs (where the prime is
+# an arm/leg word)
+# Make use of imap to access the name of each list using .y shortcut
+set.seed(555)
+stim_relpairs_df <- imap(arm_leg_ord, ~ mypairs(.x, verb_type = .y)) %>%
+  map_df(bind_rows)
+stim_relpairs_df
+```
+
+Now we need to add an *unrelated* condition by pairing arm primes with leg
+targets and vice versa:
+
+```{r}
+# Function to create UNRELATED items and combine with related and nonwords
+# Note we want to implement counterbalancing (see McNamara, 2005, ch.8)
+create_unrel <- function (df) {  # df is going to be stim_relpairs_df
+  # the same nonword items appear in lists 1 and 2, so duplicate them...
+  nonw <- df %>% dplyr::filter(condition == "nonword") %>% dplyr::bind_rows(., .)
+  nonw$list <- rep(1:2, each = nrow(nonw) / 2)  # ...and assign them to each list
+  # related items from which to create the unrelated ones:
+  rel <- df %>% dplyr::filter(condition == "related")
+  # Assign item pairs to 2 lists so half of each item_type is in each list:
+  rel$list <- rep(1:2, each = nrow(rel) / 4)
+  # Now split df into 4 nested lists (2 > 2) according to List and item_type
+  nested <- rel %>% split(.$list) %>% map(~ split(x = ., f = .$item_type))
+  
+  # function to pair arm targets with leg primes and viceversa
+  pair_unrel <- function (l_df) {  # l_df is each list of 2 dataframes in "nested"
+    unrel <- tibble(
+      condition = "unrelated",
+      # The following assumes same number of arm-arm and leg-leg items:
+      item_type = c(rep(c("arm-leg", "leg-arm"), each = nrow(l_df[["arm-arm"]]))),
+      prime     = c(l_df[["arm-arm"]][["prime"]], l_df[["leg-leg"]][["prime"]]),
+      target    = c(l_df[["leg-leg"]][["target"]], l_df[["arm-arm"]][["target"]])
+    )
+  }
+  # unrelated pairs
+  unrel <- nested %>% map(pair_unrel) %>% bind_rows()
+  # Unrelated pairs go in opposite lists of the related pairs they were created from
+  unrel$list <- rep(2:1, each = nrow(rel) / 2)
+  # out
+  bind_rows(nonw, rel, unrel) %>% dplyr::arrange(condition, item_type, list)
+}
+set.seed(7777)
+stim_df <- create_unrel(stim_relpairs_df)
+# Check out the result (and save to disk)
+stim_df %T>%
+  write.csv("development/check-out_stimuli.csv", fileEncoding = "UTF-8",
+            row.names = FALSE) %>%
+  kable()
+```
+
+Note that the `List` column has value NA for the nonword condition -- this 
+actually means that all speakers see the same nonword items.
+
+
+
+A few sanity checks
+-------------------
+
+The cross-tables below carry out a number of sanity checks for the *word*
+item pairs (related or unrelated), and then for the *nonword* item pairs.
+
+For targets and primes, they allow us to check that:
+
+- In both lists, there are 12 related and 12 unrelated items
+- Each target/prime is encountered once and once only per list
+- Each target/prime appears once in the related and once in the unrelated 
+condition
+
+**Targets**
+
+```{r}
+with(stim_df %>% filter(condition != "nonword"),
+     addmargins(table(condition, target, list)))
+```
+
+**Primes**
+
+```{r}
+with(stim_df %>% filter(condition != "nonword"),
+     addmargins(table(condition, prime, list)))
+```
+
+
+**Nonword items**
+
+```{r}
+with(stim_df %>% filter(condition == "nonword"), addmargins(table(prime)))
+```
+
+
+**All conditions together**
+
+```{r}
+with(stim_df, addmargins(table(condition, prime, list)))
+```
+
+
+
+
+
+
+Add non-critical primes from SPP
+==================================
+
+We want to add the same amount of non-critical items as there are critical 
+items to the semantic priming task: 24 target words that appear in the related
+and unrelated conditions (counterbalancd across lists). We choose those items
+from the [Semantic Priming Project](http://spp.montana.edu/), selecting items
+that elicited a large priming effect at 200 ms SOA (see Hutchison et al.,
+2013 in *Behav Res Meth* for details).
+
+
+SPP database
+------------
+
+```{r}
+# Load data I've previously downloaded from SPP website
+spp_full <- read.csv("development/spp_assoc-related_181205.csv",
+                     stringsAsFactors = FALSE) 
+# Correct some typos in the data coding
+# Relation 1
+# levels(spp_full$Relation1)  # see typos
+# table(spp_full$Relation1)   # see typos
+rel1 <- as.character(spp_full$Relation1)
+rel1 <- sub("antonymn", "antonym", rel1)
+rel1 <- sub("unclassifed", "unclassified", rel1)
+rel1 <- sub("Instrument", "instrument", rel1)
+spp_full$Relation1 <- factor(rel1)
+# Simplify data frame
+spp <- spp_full %>%
+  select(Target = TargetWord, Prime, Relation = Relation1, RT = LDT.200ms.RT,
+         Acc = LDT.200ms.Acc, Priming_eff = LDT.200ms.RT.Priming,
+         Priming_eff_z = LDT.200ms.Z.Priming)
+spp %>% head() %>% kable(digits = 3)
+```
+
+Note that, according to the authors, "the standardized item score [`RT_z` and
+`Priming_eff_z`] is the most accurate measure, minimizing the influence of a 
+subject’s processing speed and variability" (Hutchison et al. 2013, p.1108).
+Therefore, we focus on this measure.
+
+Check correlations between raw and standardized measures:
+
+```{r}
+pairs(spp[, c("RT", "Priming_eff", "Priming_eff_z")])
+```
+
+
+And we are especially interested in the priming effects:
+
+
+```{r}
+ggplot(spp, aes(x = Priming_eff, y = Priming_eff_z)) +
+  geom_point(alpha = .3) +
+  geom_smooth(method = "lm") +
+  annotate("text", x = -200, y = 1.5, size = 10, parse = TRUE,
+           label = paste("italic(r) == ", 
+                         cor(spp$Priming_eff, spp$Priming_eff_z) %>% round(2))
+           )
+```
+
+
+
+Criteria for item selection
+---------------------------
+
+We want to select targets that fulfil certain criteria:
+
+1. Targets elicit a strong priming effect
+2. Targets and primes -- both the related and unrelated prime -- are frequent
+enough to be known by L2 speakers (use a sensible threhshold)
+3. Avoid certain types of semantic relation that could be of a more idiomatic
+kind, like forward/backward phrasal associates. Best if this can be somewaht
+homogeneous.
+4. Avoid prime-target pairs that conceptually overlap with critical pairs (e.g.,
+PUSH-shove)
+5. Avoid idiosyncratic items (e.g., proper names: JESUS-christ, ENGLAND-britain)
+
+
+Load data files with relevant info and join with `spp` data frame:
+
+```{r}
+spp %>% head %>% kable
+# Targets
+spp_targ <- read.csv("development/spp_targets_181213.csv", stringsAsFactors = FALSE) %>%
+  select(Target = TargetWord, tg_SubFreq = SubFreq, tg_LogSubFreq = LogSubFreq,
+         tg_POS = POS)
+spp_targ %>% head %>% kable
+```
+
+```{r}
+# Related primes
+spp_rel <- read.csv("development/spp_assoc-related_181205.csv", stringsAsFactors = FALSE) %>%
+  select(Target = TargetWord, Prime, rel_SubFreq = SubFreq,
+         rel_LogSubFreq = LogSubFreq, rel_POS = POS, rel_ELP_LDT_Acc = ELP.LDT.Acc)
+spp_rel %>% head %>% kable
+```
+
+
+```{r}
+# Unrelated primes
+spp_unrel <- read.csv("development/spp_assoc-unrelated_181213.csv", stringsAsFactors = FALSE) %>%
+  select(Target = TargetWord, Unrel = Unrelated, unrel_Acc = LDT.200ms.Acc)
+spp_unrel %>% head %>% kable
+```
+
+Join them all:
+
+```{r}
+spp %<>% left_join(spp_targ) %>% left_join(spp_rel) %>% left_join(spp_unrel) %>%
+   # reorder columns:
+  select(Target : Relation, Unrel, RT, Acc, Priming_eff : rel_POS)
+# Save for inspection in other scripts
+spp %>% write.csv("development/spp_targets-primes-unrel.csv", row.names = FALSE)
+head(spp, 3)
+```
+
+
+Have a look at frequency of targets and primes:
+
+```{r, warning=FALSE, message=FALSE}
+for (myfreq in c("tg_SubFreq", "tg_LogSubFreq", "rel_SubFreq", "rel_LogSubFreq")) {
+  print(ggplot(spp, aes_string(x = myfreq)) + geom_histogram() + ggtitle(myfreq))
+}
+```
+
+The raw counts are pretty useless, e.g.:
+
+```{r}
+summary(spp$tg_SubFreq)
+# Remove them to gain some space when printing the object
+spp$tg_SubFreq <- NULL
+spp$rel_SubFreq <- NULL
+```
+
+
+So let's instead rely on the logged frequency (`tg_LogSubFreq` and 
+`rel_LogSubFreq`) and select items whose logFreq is at least the median:
+
+```{r}
+spp_sel <- spp %>% 
+  filter(tg_LogSubFreq >= median(tg_LogSubFreq, na.rm = TRUE),
+         rel_LogSubFreq >= median(rel_LogSubFreq, na.rm = TRUE))
+```
+
+
+
+Items with strongest priming effect
+----------------------------------
+
+Here are the 50 items that elicited the strongest priming effect:
+
+
+```{r}
+spp_sel %>% top_n(50, wt = Priming_eff) %>% arrange(desc(Priming_eff)) %>%
+  kable(digits = 2)
+```
+
+
+Add stop lists to exclude certain items:
+
+```{r}
+# Based on category: remove backward/forward phrasal association and items
+# with no category assigned
+stop_list_categ <- c("bpa", "fpa", "")
+# Based on Target:
+stop_list_target <- c(
+  "christ", "jane", "jesus", "push"
+)
+```
+
+```{r}
+spp_sel %<>% filter(! ( Relation %in% stop_list_categ | Target %in% stop_list_target ))
+spp_sel %>% top_n(50, wt = Priming_eff) %>% arrange(desc(Priming_eff)) %>%
+  kable(digits = 2)
+```
+
+
