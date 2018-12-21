@@ -1,5 +1,5 @@
 ---
-title: "Stimuli selection from SPP"
+title: "Stimuli selection for semantic priming task"
 author: '[Guillermo Montero-Melis](http://www.biling.su.se/montero_melis_guillermo)'
 date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
 output:
@@ -24,8 +24,64 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-Introduction
+Introduction: The set of items we need
 ===========
+
+For the semantic priming paradigm we need the following item structure:
+
+```{r, echo = FALSE}
+stim_structure <- tibble(
+  Language = "",
+  ItemType = c(rep("critical", 6), rep("filler", 3)),
+  Condition = c(rep(c("related", "unrelated", "nonword"), each = 2),
+                c("related", "unrelated", "nonword")),
+  Prime = paste(c("Arm", "Leg", "Leg", "Arm", "Arm", "Leg", rep("NonCrit", 3)),
+                "word", sep = "-"),
+  Target = paste(c(rep(c("Arm", "Leg"), 2), rep("Non", 2), "Arm", "Leg", "Non"),
+                 "word", sep = "-"),
+  "#perList" = c(rep(6, 4), rep(12,2), rep(12, 2), 24),
+  "#Lists"   = c(rep(2, 4), rep(1, 2), rep(2, 2), 1)
+)
+stim_structure <- bind_rows(stim_structure, stim_structure)
+stim_structure$Language <- rep(c("English (L2)", "Swedish (L1)"), 
+                               each = nrow(stim_structure) / 2)
+kable(stim_structure)
+```
+
+Explanation of the table:
+
+- The rows of the table are duplicated for each language: The structure is
+the same, the words will of course be different -- although one could use
+translation equivalents and counterbalance them with a Latin Square design
+across languages
+- `ItemType` shows that there are two equivalent sub-designs, one with the
+critical items and the other with fillers. The reason to have fillers is that
+we don't want participants to be overly aware that they are seeing the same
+words they just had to memorize in the memory task
+- `Condition` shows the three basic conditions in any semantic priming Lexical
+Decision Task (LDT): `r unique(stim_structure$Condition)`
+- `Prime` shows the kind of word used as a prime. Note that within critical
+stimuli, leg-words are always the unrelated primes for arm-words and vice versa.
+- `Target` Same idea as for primes. Note that a given word is either a target
+or a prime, but never both.
+- `#perList` shows the number of items needed in each list
+- `#Lists` shows the number of lists we need to use for counterbalancing targets
+and primes across participants, so that any participant sees each prime and
+target either in the related or unrelated condition, but all appear equally
+often in both conditions across participants. Note that:
+    - Nonword items don't require counterbalancing because for these we use
+    different primes than in the related/unrelated conditions
+    - Because we have two lists per language, we will in fact assign each
+    participant to one of four lists (2 languages x 2 lists / language)
+
+
+Questions left
+-------------
+
+1. How to choose the non-critical items (see section "Two ways to go about")
+2. How to choose the Swedish items: should they be the "same" items as in
+English (i.e., translations of the English stimuli, counterbalanced across
+lists with a Latin Square)?
 
 
 Selection of critical arm/leg stimuli: English
@@ -77,23 +133,29 @@ What we need
 
 For the semantic priming task, we need:
 
-1) 12 arm verbs that will serve as targets in the LDT
-2) 12 arm verbs that will serve as primes, either related (if they prime arm
-targets) or unrelated (if they prime leg targets), counterbalanced across two
+1) 12 arm verbs that will serve as **targets** in the LDT
+2) 12 arm verbs that will serve as **primes**, either related (if they prime 
+arm targets) or unrelated (if they prime leg targets), counterbalanced across two
 lists
 3) 12 arm verbs that serve as primes to non-words
-4) We also need 1--3 for leg verbs.
+4) We also need the equivalent of 1 to 3 for leg verbs.
 
 We will order the verbs with regard to their bias, and take the 24 verbs with
-the strongest bias of each type as items for 1) and 2) above. The 12 verbs per
-category for 3) will be taken from the remaining verbs.
+the strongest bias of each type as items for 1 and 2 above. The 12 verbs per
+category for 3 will be taken from the remaining verbs.
 
 Note that we need to pair 12 arm/leg verbs with nonwords (3 above). Otherwise
 participants could rapidly pick up that target primes (all of which they will 
 already have encountered in the memory task) will always be followed by actual
-verbs.
+words -- and the validity of the LDT would be compromised.
 
 
+
+Selection and cast into appropriate format
+--------------------------------------
+
+Arrange arm and leg words in two different lists according to bias and
+translation score (first items shown):
 
 ```{r}
 # Lists of arm and leg words arranged according to bias and translation score
@@ -106,14 +168,12 @@ arm_leg_ord %>% map(head)
 ```
 
 
-Selection and cast into appropriate format
---------------------------------------
-
 Create a function that takes the ordered vector of target items (arm or leg
 verbs) and creates a list that contains:
 
 - A dataframe of related pairs (e.g., arm-arm pairs) 
-- A dataframe of critical primes paired with nonwords (e.g., arm-nonword pairs)
+- A dataframe of nonword pairs, where the prime is a critical word (e.g.,
+arm-nonword)
 
 ```{r}
 mypairs <- function (vbs, verb_type) {
@@ -151,14 +211,18 @@ Now we need to add an *unrelated* condition by pairing arm primes with leg
 targets and vice versa:
 
 ```{r}
-# Function to create UNRELATED items and combine with related and nonwords
-# Note we want to implement counterbalancing (see McNamara, 2005, ch.8)
+# Function to create UNRELATED items and then merge back with related and
+# nonword items. Note we want to implement counterbalancing of both targets
+# and primes (see McNamara, 2005, ch.8)
 create_unrel <- function (df) {  # df is going to be stim_relpairs_df
   # the same nonword items appear in lists 1 and 2, so duplicate them...
   nonw <- df %>% dplyr::filter(condition == "nonword") %>% dplyr::bind_rows(., .)
-  nonw$list <- rep(1:2, each = nrow(nonw) / 2)  # ...and assign them to each list
+  # ...and assign them to each list:
+  nonw$list <- rep(1:2, each = nrow(nonw) / 2)
+  
   # related items from which to create the unrelated ones:
   rel <- df %>% dplyr::filter(condition == "related")
+  
   # Assign item pairs to 2 lists so half of each item_type is in each list:
   rel$list <- rep(1:2, each = nrow(rel) / 4)
   # Now split df into 4 nested lists (2 > 2) according to List and item_type
@@ -183,15 +247,12 @@ create_unrel <- function (df) {  # df is going to be stim_relpairs_df
 }
 set.seed(7777)
 stim_df <- create_unrel(stim_relpairs_df)
-# Check out the result (and save to disk)
-stim_df %T>%
-  write.csv("development/check-out_stimuli.csv", fileEncoding = "UTF-8",
-            row.names = FALSE) %>%
-  kable()
+# Check out the result
+stim_df %>% kable()
 ```
 
-Note that the `List` column has value NA for the nonword condition -- this 
-actually means that all speakers see the same nonword items.
+Note that the nonword items are the same across lists (`List`): All 
+participants see the same nonword items.
 
 
 
@@ -201,7 +262,7 @@ A few sanity checks
 The cross-tables below carry out a number of sanity checks for the *word*
 item pairs (related or unrelated), and then for the *nonword* item pairs.
 
-For targets and primes, they allow us to check that:
+For targets and primes, we want to check that:
 
 - In both lists, there are 12 related and 12 unrelated items
 - Each target/prime is encountered once and once only per list
@@ -281,14 +342,7 @@ Note that, according to the authors, "the standardized item score [`RT_z` and
 subject’s processing speed and variability" (Hutchison et al. 2013, p.1108).
 Therefore, we focus on this measure.
 
-Check correlations between raw and standardized measures:
-
-```{r}
-pairs(spp[, c("RT", "Priming_eff", "Priming_eff_z")])
-```
-
-
-And we are especially interested in the priming effects:
+Check correlations between raw and standardized priming effects:
 
 
 ```{r}
@@ -314,8 +368,8 @@ enough to be known by L2 speakers (use a sensible threhshold)
 3. Avoid certain types of semantic relation that could be of a more idiomatic
 kind, like forward/backward phrasal associates. Best if this can be somewaht
 homogeneous.
-4. Avoid prime-target pairs that conceptually overlap with critical pairs (e.g.,
-PUSH-shove)
+4. Avoid prime-target pairs that comprise action words and thus conceptually
+overlap with critical pairs (e.g., PUSH-shove)
 5. Avoid idiosyncratic items (e.g., proper names: JESUS-christ, ENGLAND-britain)
 
 
@@ -366,7 +420,7 @@ for (myfreq in c("tg_SubFreq", "tg_LogSubFreq", "rel_SubFreq", "rel_LogSubFreq")
 }
 ```
 
-The raw counts are pretty useless, e.g.:
+The raw frequency counts are pretty useless, e.g.:
 
 ```{r}
 summary(spp$tg_SubFreq)
@@ -390,31 +444,150 @@ spp_sel <- spp %>%
 Items with strongest priming effect
 ----------------------------------
 
-Here are the 50 items that elicited the strongest priming effect:
+Here are the 50 items that elicited the strongest standardized priming effect:
 
 
 ```{r}
-spp_sel %>% top_n(50, wt = Priming_eff) %>% arrange(desc(Priming_eff)) %>%
+spp_sel %>% top_n(50, wt = Priming_eff_z) %>% 
+  arrange(desc(Priming_eff_z)) %>%
   kable(digits = 2)
 ```
 
 
-Add stop lists to exclude certain items:
+We can add stop lists to exclude certain items:
 
 ```{r}
-# Based on category: remove backward/forward phrasal association and items
-# with no category assigned
+# Based on category: remove backward/forward phrasal association and items with
+# no category assigned
 stop_list_categ <- c("bpa", "fpa", "")
-# Based on Target:
+# Based on Target, remove some odd ones:
 stop_list_target <- c(
   "christ", "jane", "jesus", "push"
 )
 ```
 
+Show 10 first filtered items:
+
 ```{r}
-spp_sel %<>% filter(! ( Relation %in% stop_list_categ | Target %in% stop_list_target ))
-spp_sel %>% top_n(50, wt = Priming_eff) %>% arrange(desc(Priming_eff)) %>%
-  kable(digits = 2)
+spp_sel %<>% filter(! ( Relation %in% stop_list_categ | Target %in% stop_list_target )) %>%
+  arrange(desc(Priming_eff_z))
+spp_sel %>% head(10) %>% kable(digits = 2)
 ```
 
 
+
+How to form the pairs?
+---------------------
+
+
+It is usually best practice to counterbalance both targets and primes across
+lists (McNamara, 2005, ch.8), so that:
+
+- Targets appear in related and unrelated condition across lists (e.g., List 1:
+CAT-dog; List 2: TABLE-dog)
+- Prime words also appear in related and unrelated condition across lists
+(e.g., List 1: CAT-dog; List 2: CAT-spoon)
+
+However, if I select a subset of, say, 48 item pairs from the SPP database,
+stimuli will not be arranged in that way. I.e., if I take the related pair
+`r spp_sel[1,1]`-`r spp_sel[1,2]`:
+
+```{r}
+spp_sel[1,] %>% select(Target : Unrel) %>% kable
+```
+
+it is not the case that the target for which `r spp_sel[1,2]` is the unrelated
+prime will necessary remain within that list:
+
+```{r}
+spp_sel[spp_sel$Unrel == spp_sel[1,1],] %>% select(Target : Unrel) %>% kable
+```
+
+
+In fact, the way in which targets,
+primes and unrelated items are paired is quite convoluted and does not seem
+to follow any regular pattern (see `stimuli/understand_SPP_stimuli.R`).
+
+
+
+Two ways to go about
+--------------------
+
+### No counterbalancing
+
+We could take the items from the SPP data base *as is*, without doing any 
+counter balancing.
+
+That is, we could choose the *n* items among those eliciting the strongest priming
+effect, without caring about counterbalancing primes. In that case we would 
+simply have two versions for each target, one with the related and the other
+with the unrelated prime, and we don't care about counterbalancing the primes
+at all. 
+
+For example, based on the items:
+
+```{r}
+spp_sel[1:2,] %>% select(Target : Unrel) %>% kable
+```
+
+We would create the following set of related/unrelated pairs and distribute 
+them across two lists as follows:
+
+| Condition  |  Target |  Prime | List  |
+|---|---|---|---|
+|  related |bird   | WINGS  | 1  |
+|  related |boss   | SECRETARY  |  2 |
+| unrelated  |bird   | LID  | 2  |
+| unrelated  |boss   |  PURPOSE | 1  |
+
+This works well for the Targets: A participant assigned to List 1 would see
+*bird* and *boss* once each, and so would a participant exposed to List 2.
+And they would see them in complementary related/unrelated conditions.
+**However**, they would see different Primes!
+
+
+### Counterbalancing
+
+The other option is to take the first *n* related pairs from the SPP database,
+but then repair them among themselves to create the unrelated versions.
+In that case we would simply throw away the words in the unrelated column
+above (`Unrel`).
+
+To illustrate we need four pairs of related items (the same two as above and
+two more). From those four we would create the following pairs:
+
+```{r}
+counterb <- spp_sel[1 : 4,] %>% select(Target, Prime)
+counterb <- counterb %>%
+  bind_rows(tibble(
+    Target = counterb$Target,
+    Prime  = with(counterb, c(Prime[2:1], Prime[4:3]))
+  ))
+counterb$List <- c(rep(c(1:2), each = 2), rep(c(2:1), each = 2))
+counterb$Condition <- rep(c("related", "unrelated"), each = 4)
+counterb %>% select(Condition, Target : List) %>% kable
+```
+
+
+That would ensure counterbalancing of targets *and* primes: within a list a
+word (target or prime) only appears once, in either the related or unrelated 
+condition. But across Lists all words appear in both conditions once.
+
+However, with this approach we wouldn't be able to rely on the priming effects
+reported in the SPP anymore, because those effects are always the difference
+between RT in the related and unrelated conditions (but we wouldn't be using
+the latter). Nor would we be able to check for properties of the unrelated-target
+relation in the way the SPP did; so we would lack objective measures to 
+establish that unrelated pairs in fact are unrelated.
+Unless, of course, we worked out those measures for the new stimuli...
+
+
+
+### Advantages/disadvantages
+
+|   |Counterbalancing |  | No counterbalancing  |
+|---|---|---|---|
+| +  | Both targets and primes are counterbalanced   | - | Inbalance of primes across lists might create confounds  |
+| - |We don't know if the new unrelated pairs  are *really* unrelated (but we could find out)  | + | Unrelatedness of pairs in unrelated condition has been checked within SPP|
+| -  | We can't rely on priming effects from SPP  | + | We can rely on priming effects from SPP  |
+|   |   |   ||
