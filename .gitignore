@@ -9,3 +9,8 @@
 *.pdf
 *.xls
 *.xlsx
+
+
+# Some files created for interactive use only:
+*recursive-track.csv
+*my_eprime_list_*.txt
